@@ -1,7 +1,160 @@
 -- 可拖动坐标记录/传送器 (支持手机与电脑)
 -- 将以下代码放入注入器执行（LocalScript）
 
+local Players = game:-- 复制到注入器执行（手机触摸拖动 + 传送正常）
 local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+
+-- 等待角色
+local Character = Player.Character or Player.CharacterAdded:Wait()
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+
+-- 创建 UI
+local GUI = Instance.new("ScreenGui")
+GUI.Name = "TeleportUI"
+GUI.ResetOnSpawn = false
+GUI.Parent = Player:WaitForChild("PlayerGui")
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 180, 0, 150)
+MainFrame.Position = UDim2.new(0, 20, 0.5, -75)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+MainFrame.BackgroundTransparency = 0.3
+MainFrame.BorderSizePixel = 0
+MainFrame.ClipsDescendants = true
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
+MainFrame.Parent = GUI
+
+-- ======== 拖动把手（只有这个小区域能拖动） ========
+local DragHandle = Instance.new("TextButton")
+DragHandle.Size = UDim2.new(0, 22, 0, 22)
+DragHandle.Position = UDim2.new(0, 3, 0, 3)   -- 标题左侧小方块
+DragHandle.Text = "⠿"
+DragHandle.Font = Enum.Font.SourceSansBold
+DragHandle.TextSize = 14
+DragHandle.TextColor3 = Color3.fromRGB(200, 200, 200)
+DragHandle.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+DragHandle.BackgroundTransparency = 0.6
+DragHandle.BorderSizePixel = 0
+Instance.new("UICorner", DragHandle).CornerRadius = UDim.new(0, 4)
+DragHandle.Parent = MainFrame
+
+local dragging = false
+local dragStartPos = nil
+local dragStartInputPos = nil
+
+DragHandle.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStartPos = MainFrame.Position
+		dragStartInputPos = Vector2.new(input.Position.X, input.Position.Y)
+	end
+end)
+
+DragHandle.InputChanged:Connect(function(input)
+	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		local currentInputPos = Vector2.new(input.Position.X, input.Position.Y)
+		local delta = currentInputPos - dragStartInputPos
+		MainFrame.Position = UDim2.new(
+			dragStartPos.X.Scale, dragStartPos.X.Offset + delta.X,
+			dragStartPos.Y.Scale, dragStartPos.Y.Offset + delta.Y
+		)
+	end
+end)
+
+DragHandle.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = false
+	end
+end)
+-- ======== 拖动把手结束 ========
+
+-- 标题（放在把手右边）
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -30, 0, 20)
+Title.Position = UDim2.new(0, 28, 0, 5)
+Title.BackgroundTransparency = 1
+Title.Text = "坐标传送器"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 14
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = MainFrame
+
+-- 记录按钮
+local RecordButton = Instance.new("TextButton")
+RecordButton.Size = UDim2.new(0, 70, 0, 25)
+RecordButton.Position = UDim2.new(0, 5, 0, 30)
+RecordButton.Text = "记录坐标"
+RecordButton.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+RecordButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+RecordButton.Font = Enum.Font.SourceSansBold
+RecordButton.TextSize = 13
+RecordButton.BorderSizePixel = 0
+Instance.new("UICorner", RecordButton).CornerRadius = UDim.new(0, 5)
+RecordButton.Parent = MainFrame
+
+-- 三个坐标框
+local CoordinateFrames = {}
+for i = 1, 3 do
+	local btn = Instance.new("TextButton")
+	btn.Name = "CoordFrame"..i
+	btn.Size = UDim2.new(0, 65, 0, 22)
+	btn.Position = UDim2.new(0, 5, 0, 30 + 28 * i)
+	btn.Text = "空"
+	btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+	btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+	btn.Font = Enum.Font.SourceSans
+	btn.TextSize = 12
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = false
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+	btn.Parent = MainFrame
+	CoordinateFrames[i] = btn
+end
+
+-- 传送按钮
+local TeleportButton = Instance.new("TextButton")
+TeleportButton.Size = UDim2.new(0, 70, 0, 40)
+TeleportButton.Position = UDim2.new(0, 85, 0.5, -20)
+TeleportButton.Text = "传送"
+TeleportButton.BackgroundColor3 = Color3.fromRGB(220, 80, 80)
+TeleportButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+TeleportButton.Font = Enum.Font.SourceSansBold
+TeleportButton.TextSize = 16
+TeleportButton.BorderSizePixel = 0
+Instance.new("UICorner", TeleportButton).CornerRadius = UDim.new(0, 8)
+TeleportButton.Parent = MainFrame
+
+-- 数据
+local Records = {}
+local SelectedIndex = nil
+
+-- 更新显示与高亮
+local function UpdateDisplay()
+	for i = 1, 3 do
+		local btn = CoordinateFrames[i]
+		local pos = Records[i]
+		if pos then
+			btn.Text = string.format("%.1f, %.1f, %.1f", pos.X, pos.Y, pos.Z)
+		else
+			btn.Text = "空"
+		end
+		if i == SelectedIndex then
+			btn.BackgroundColor3 = Color3.fromRGB(100, 100, 255)
+			btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		else
+			btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+			btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+		end
+	end
+end
+
+-- 记录坐标
+local function RecordPosition()
+	local char = Player.Character
+	if nvice("Players")
 local UIS = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
